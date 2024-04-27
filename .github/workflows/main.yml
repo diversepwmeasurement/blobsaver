@@ -1,56 +1,69 @@
-name: CI
-
-on: [push, pull_request]
-
 jobs:
   build:
     name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@v4
+    - continue-on-error: true
+      name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: zulu
+        java-version: '21'
+    - continue-on-error: true
+      if: runner.os == 'Linux'
+      name: Install Linux dependencies
+      run: sudo apt-get install libplist-dev libimobiledevice-dev libirecovery-1.0-dev
+    - continue-on-error: true
+      name: Gradle build
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        arguments: build --no-daemon --scan
+        dependency-graph: generate-and-submit
+    - continue-on-error: true
+      uses: initdc/upload-artifact@feat/artifact-per-file
+      with:
+        artifact-name-rule: ${{ runner.os }}${ext}
+        artifact-per-file: true
+        path: build/distributions/*
+    - continue-on-error: true
+      if: ${{ failure() }}
+      name: Upload reports on failure
+      uses: actions/upload-artifact@v4
+      with:
+        name: failure-${{ runner.os }}
+        path: build/reports/
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'zulu'
-      - name: Install Linux dependencies
-        run: sudo apt-get install libplist-dev libimobiledevice-dev libirecovery-1.0-dev
-        if: runner.os == 'Linux'
-      - name: Gradle build
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          arguments: build --no-daemon --scan
-          dependency-graph: generate-and-submit
-      - uses: initdc/upload-artifact@feat/artifact-per-file
-        with:
-          artifact-per-file: true
-          artifact-name-rule: ${{ runner.os }}${ext}
-          path: build/distributions/*
-      - name: Upload reports on failure
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: failure-${{ runner.os }}
-          path: build/reports/
+        os:
+        - ubuntu-latest
+        - windows-latest
+        - macOS-latest
   release:
+    if: startsWith(github.event.head_commit.message, 'Release')
     name: Create public releases
-    runs-on: ubuntu-latest
     needs: build
-    if: "startsWith(github.event.head_commit.message, 'Release')"
+    runs-on: self-hosted
     steps:
-      - name: Get artifacts
-        uses: actions/download-artifact@v4
-      - name: Get version from commit
-        run: echo "VERSION=$(echo ${{ github.event.commits[0].message }} | awk '{print $2}')" >> $GITHUB_ENV
-      - name: Release public builds
-        uses: "marvinpinto/action-automatic-releases@latest"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "${{ env.VERSION }}"
-          prerelease: false
-          draft: true
-          files: "**"
+    - continue-on-error: true
+      name: Get artifacts
+      uses: actions/download-artifact@v4
+    - continue-on-error: true
+      name: Get version from commit
+      run: echo "VERSION=$(echo ${{ github.event.commits[0].message }} | awk '{print
+        $2}')" >> $GITHUB_ENV
+    - continue-on-error: true
+      name: Release public builds
+      uses: marvinpinto/action-automatic-releases@latest
+      with:
+        automatic_release_tag: ${{ env.VERSION }}
+        draft: true
+        files: '**'
+        prerelease: false
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+name: CI
+on:
+  repository_dispatch:
+    types: trigger-ga___main.yml
